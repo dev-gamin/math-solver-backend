@@ -1,0 +1,9 @@
+flask==3.0.3
+werkzeug==3.0.3
+sympy==1.13.1
+pix2text==1.1.0.2  # OCR core; may need lighter alt if size issues
+opencv-python-headless==4.10.0.84  # Serverless-friendly image processing
+paddlepaddle==3.1.0  # CPU version (no GPU on Vercel); check size
+paddleocr==2.8.0
+flask-cors==4.0.1  # For CORS (allows app to connect from different origins)
+waitress==3.0.0  # Production WSGI server for Flask on Vercel
