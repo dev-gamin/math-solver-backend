@@ -1,12 +1,46 @@
+import os
+from pathlib import Path
+import re
 import sympy as sp
 from flask import Flask, request, jsonify
-from pix2text import Pix2Text
 from werkzeug.utils import secure_filename
-import os
-import re
+from pix2text import Pix2Text
+import nltk
+from nltk import word_tokenize
+
+# Lazy-load NLTK data
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    nltk.download('punkt_tab', quiet=True)
+
+# Set custom home dirs to bundled models
+base_dir = Path(__file__).parent
+os.environ['CNSTD_HOME'] = str(base_dir / 'models' / '.cnstd')
+os.environ['CNOCR_HOME'] = str(base_dir / 'models' / '.cnocr')
+os.environ['PIX2TEXT_HOME'] = str(base_dir / 'models' / '.pix2text')
 
 app = Flask(__name__)
 p2t = Pix2Text.from_config(device='cpu', engine_formula='mfr')  # Initialize Pix2Text once
+
+def parse_word_problem(text):
+    # Basic NLP parsing for word problems using NLTK
+    tokens = word_tokenize(text.lower())
+    # Simple heuristic: extract numbers and operations
+    numbers = [t for t in tokens if t.isdigit()]
+    ops = [t for t in tokens if t in ['plus', 'minus', 'times', 'divided', 'equals']]
+    # Construct a basic equation, e.g., "x + 5 = 10" from "what plus 5 equals 10"
+    if 'what' in tokens and 'equals' in tokens:
+        eq = 'x'
+        for op, num in zip(ops, numbers):
+            if op == 'plus':
+                eq += ' + ' + num
+            elif op == 'minus':
+                eq += ' - ' + num
+            # Add more ops as needed
+        eq += ' = ' + numbers[-1] if len(numbers) > len(ops) else ''
+        return eq
+    return text  # Fallback to original if not parsed
 
 def prepare_equation(s):
     s = s.strip('$ ')
@@ -24,10 +58,14 @@ def prepare_equation(s):
             s = s[:start] + '**(' + power + ')' + s[end+1:]
     # Handle plain ^
     s = s.replace('^', '**')
-    return s.replace(' ', '')  # Remove all spaces for Sympy parsing
+    return s.replace(' ', '')  # Remove all spaces for SymPy parsing
 
 def solve_equation(equation_str):
     try:
+        # If it looks like a word problem, parse it first
+        if re.search(r'\b(what|find|solve|how many)\b', equation_str, re.I):
+            equation_str = parse_word_problem(equation_str)
+        
         prepared = prepare_equation(equation_str)  # Preprocess
         x = sp.symbols('x')
         eq_str = prepared.replace('=', '-(') + ')'
@@ -73,7 +111,8 @@ def recognize():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-        os.remove(img_path)
+        if os.path.exists(img_path):
+            os.remove(img_path)
 
 @app.route('/solve', methods=['POST'])
 def solve():
@@ -85,4 +124,5 @@ def solve():
     return jsonify(result)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
